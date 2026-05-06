@@ -3,11 +3,11 @@
 ## What is this?
 This is a fork of [GRDB](https://github.com/groue/GRDB.swift) with added support for [SQLCipher Community Edition](https://www.zetetic.net/sqlcipher/open-source/), packaged into XCFramework so that it can be consumed as a Swift Package.
 
-The default branch for this repository is `main` (as opposed to upstream's `master`) and it doesn't include GRDB (or SQLCipher) source code – only the Swift Package definition and release scripts/assets. XCFramework archives are attached directly in [GitHub Releases](https://github.com/duckduckgo/GRDB.swift/releases).
+The default branch for this repository is `main` (as opposed to upstream's `master`) and it doesn't include GRDB (or SQLCipher) source code – only the Swift Package definition and release scripts/assets. XCFramework archives are attached directly in [GitHub Releases](https://github.com/dcncy/GRDB.swift/releases).
 
 ## Version
 
-* This Package: *3.0.0*
+* This Package: *3.1.0*
 * GRDB: *7.4.1*
 * SQLCipher: *4.7.0*
 

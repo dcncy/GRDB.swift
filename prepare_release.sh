@@ -3,7 +3,7 @@
 set -e
 
 mute=">/dev/null 2>&1"
-if [[ "$1" == "-v" ]]; then
+if [[ "${1:-}" == "-v" ]]; then
 	mute=
 fi
 
@@ -47,6 +47,38 @@ read_command_line_arguments() {
 	if [[ -n "$grdb_tag" ]]; then
 		force_release=1
 	fi
+}
+
+resolve_release_repository() {
+	if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
+		printf '%s' "${GITHUB_REPOSITORY}"
+		return 0
+	fi
+
+	local origin_url
+	origin_url="$(git remote get-url origin 2>/dev/null || true)"
+	origin_url="${origin_url%.git}"
+
+	if [[ -z "$origin_url" ]]; then
+		echo "Unable to determine the GitHub repository from origin remote."
+		return 1
+	fi
+
+	case "$origin_url" in
+		git@github.com:*)
+			printf '%s' "${origin_url#git@github.com:}"
+			;;
+		https://github.com/*)
+			printf '%s' "${origin_url#https://github.com/}"
+			;;
+		ssh://git@github.com/*)
+			printf '%s' "${origin_url#ssh://git@github.com/}"
+			;;
+		*)
+			echo "Unsupported origin remote for GitHub releases: ${origin_url}"
+			return 1
+			;;
+	esac
 }
 
 clone_grdb() {
@@ -93,13 +125,13 @@ update_readme() {
 
 	cat <<- EOF
 
-	DuckDuckGo GRDB.swift current version: ${current_version}
+	${release_repository} current version: ${current_version}
 	Upstream GRDB.swift version: ${current_upstream_version} -> ${upstream_version}
 	SQLCipher version: ${current_sqlcipher_version} -> ${sqlcipher_version}
 	EOF
 
 	while ! [[ "${new_version}" =~ [0-9]\.[0-9]\.[0-9] ]]; do
-		read -rp "Input DuckDuckGo GRDB.swift desired version number (x.y.z): " new_version < /dev/tty
+		read -rp "Input ${release_repository} desired version number (x.y.z): " new_version < /dev/tty
 	done
 
 	envsubst < "${cwd}/assets/README.md.in" > README.md
@@ -233,6 +265,81 @@ build_and_test_release() {
 	fi
 }
 
+require_path() {
+	local path=$1
+	local description=$2
+
+	if ! [[ -e "$path" ]]; then
+		echo "Missing ${description}: ${path}"
+		return 1
+	fi
+}
+
+collect_uuid_pairs() {
+	dwarfdump --uuid "$1" | awk '{print $2" "$3}' | sort
+}
+
+verify_matching_debug_symbols() {
+	local binary_path=$1
+	local dsym_path=$2
+	local description=$3
+	local binary_uuids
+	local dsym_uuids
+
+	require_path "$binary_path" "${description} binary"
+	require_path "$dsym_path" "${description} dSYM"
+
+	binary_uuids="$(collect_uuid_pairs "$binary_path")"
+	dsym_uuids="$(collect_uuid_pairs "$dsym_path")"
+
+	if [[ -z "$binary_uuids" || -z "$dsym_uuids" || "$binary_uuids" != "$dsym_uuids" ]]; then
+		cat <<-EOF
+		Debug symbol UUID mismatch for ${description}.
+		Binary UUIDs:
+		${binary_uuids:-<none>}
+		dSYM UUIDs:
+		${dsym_uuids:-<none>}
+		EOF
+		return 1
+	fi
+}
+
+verify_archive_debug_symbols() {
+	local archive_path=$1
+	local description=$2
+
+	verify_matching_debug_symbols \
+		"${archive_path}/Products/Library/Frameworks/GRDB.framework/GRDB" \
+		"${archive_path}/dSYMs/GRDB.framework.dSYM/Contents/Resources/DWARF/GRDB" \
+		"${description} archive"
+}
+
+verify_release_artifacts() {
+	local archives_path=$1
+	local xcframework_path=$2
+
+	printf '%s' "Verifying debug symbols ... "
+
+	verify_archive_debug_symbols "${archives_path}/GRDB-iOS.xcarchive" "iOS"
+	verify_archive_debug_symbols "${archives_path}/GRDB-iOS Simulator.xcarchive" "iOS Simulator"
+	verify_archive_debug_symbols "${archives_path}/GRDB-macOS.xcarchive" "macOS"
+
+	verify_matching_debug_symbols \
+		"${xcframework_path}/ios-arm64/GRDB.framework/GRDB" \
+		"${xcframework_path}/ios-arm64/dSYMs/GRDB.framework.dSYM/Contents/Resources/DWARF/GRDB" \
+		"iOS XCFramework slice"
+	verify_matching_debug_symbols \
+		"${xcframework_path}/ios-arm64_x86_64-simulator/GRDB.framework/GRDB" \
+		"${xcframework_path}/ios-arm64_x86_64-simulator/dSYMs/GRDB.framework.dSYM/Contents/Resources/DWARF/GRDB" \
+		"iOS Simulator XCFramework slice"
+	verify_matching_debug_symbols \
+		"${xcframework_path}/macos-arm64_x86_64/GRDB.framework/GRDB" \
+		"${xcframework_path}/macos-arm64_x86_64/dSYMs/GRDB.framework.dSYM/Contents/Resources/DWARF/GRDB" \
+		"macOS XCFramework slice"
+
+	echo "✅"
+}
+
 build_archive() {
 	local platform=$1
 	local archives_path=$2
@@ -263,7 +370,12 @@ build_xcframework() {
 	local archives_dir="archives"
 	local archives_path="${workdir}/${archives_dir}"
 
-	build_opts=("BUILD_LIBRARY_FOR_DISTRIBUTION=YES" "SKIP_INSTALL=NO" "ONLY_ACTIVE_ARCH=NO")
+	build_opts=(
+		"BUILD_LIBRARY_FOR_DISTRIBUTION=YES"
+		"SKIP_INSTALL=NO"
+		"ONLY_ACTIVE_ARCH=NO"
+		"DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"
+	)
 
 	echo ""
 	echo "Building XCFramework ⚙️"
@@ -277,13 +389,18 @@ build_xcframework() {
 	printf '%s' "Creating XCFramework ... "
 	pushd "$workdir" >/dev/null 2>&1
 	xcodebuild -create-xcframework \
- 		-archive "${archives_dir}/GRDB-iOS.xcarchive" -framework GRDB.framework \
+		-archive "${archives_dir}/GRDB-iOS.xcarchive" -framework GRDB.framework \
+		-debug-symbols "${archives_dir}/GRDB-iOS.xcarchive/dSYMs/GRDB.framework.dSYM" \
 		-archive "${archives_dir}/GRDB-iOS Simulator.xcarchive" -framework GRDB.framework \
+		-debug-symbols "${archives_dir}/GRDB-iOS Simulator.xcarchive/dSYMs/GRDB.framework.dSYM" \
 		-archive "${archives_dir}/GRDB-macOS.xcarchive" -framework GRDB.framework \
+		-debug-symbols "${archives_dir}/GRDB-macOS.xcarchive/dSYMs/GRDB.framework.dSYM" \
 		-output "${xcframework}" >/dev/null 2>&1
 	popd >/dev/null 2>&1
 	echo "✅"
-	
+
+	verify_release_artifacts "$archives_path" "$xcframework"
+
 	printf '%s' "Compressing XCFramework ... "
 	rm -rf "$xcframework_zip"
 	ditto -c -k --keepParent "$xcframework" "$xcframework_zip"
@@ -301,19 +418,22 @@ update_swift_package() {
 make_release() {
 	echo "Making ${new_version} release ... 🚢"
 
-	local commit_message="DuckDuckGo GRDB.swift ${new_version} (GRDB ${upstream_version}, SQLCipher ${sqlcipher_version})"
+	local commit_message="GRDB.swift ${new_version} (GRDB ${upstream_version}, SQLCipher ${sqlcipher_version})"
 
-	git add "${cwd}/README.md" "${cwd}/Package.swift" "${cwd}/assets/xcodeproj.patch"
+	git add \
+		"${cwd}/README.md" \
+		"${cwd}/Package.swift" \
+		"${cwd}/assets/xcodeproj.patch"
 	git commit -m "$commit_message"
 	git tag -m "$commit_message" "$new_version"
 	git push origin main
 	git push origin "$new_version"
 
-	gh release create "$new_version" --generate-notes "${xcframework_zip}" --repo duckduckgo/GRDB.swift
+	gh release create "$new_version" --generate-notes "${xcframework_zip}" --repo "$release_repository"
 
 	cat <<- EOF
 
-	🎉 Release is ready at https://github.com/duckduckgo/GRDB.swift/releases/tag/${new_version}
+	🎉 Release is ready at https://github.com/${release_repository}/releases/tag/${new_version}
 	EOF
 }
 
@@ -321,6 +441,8 @@ main() {
 	printf '%s\n' "Using directory at ${workdir}"
 
 	read_command_line_arguments "$@"
+	release_repository="$(resolve_release_repository)"
+	export release_repository
 
 	clone_grdb "$grdb_tag"
 	clone_sqlcipher
@@ -333,4 +455,6 @@ main() {
 	make_release
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+	main "$@"
+fi

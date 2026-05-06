@@ -17,10 +17,11 @@ sqlcipher_dir="${workdir}/sqlcipher-source"
 print_usage_and_exit() {
 	cat <<- EOF
 	Usage:
-	  $ $(basename "$0") [-v] [-h] [<grdb_tag>]
+	  $ $(basename "$0") [-v] [-h] [-r <release_version>] [<grdb_tag>]
 
 	Options:
 	 -h      Show this message
+	 -r      Release version number (x.y.z)
 	 -v      Verbose output
 	EOF
 
@@ -28,10 +29,13 @@ print_usage_and_exit() {
 }
 
 read_command_line_arguments() {
-	while getopts 'hv' OPTION; do
+	while getopts 'hr:v' OPTION; do
 		case "${OPTION}" in
 			h)
 				print_usage_and_exit
+				;;
+			r)
+				new_version="${OPTARG}"
 				;;
 			v)
 				mute=
@@ -130,7 +134,12 @@ update_readme() {
 	SQLCipher version: ${current_sqlcipher_version} -> ${sqlcipher_version}
 	EOF
 
-	while ! [[ "${new_version}" =~ [0-9]\.[0-9]\.[0-9] ]]; do
+	if [[ -n "${new_version:-}" ]] && ! [[ "${new_version}" =~ [0-9]\.[0-9]\.[0-9] ]]; then
+		echo "Invalid release version: ${new_version}. Expected format x.y.z"
+		exit 1
+	fi
+
+	while ! [[ "${new_version:-}" =~ [0-9]\.[0-9]\.[0-9] ]]; do
 		read -rp "Input ${release_repository} desired version number (x.y.z): " new_version < /dev/tty
 	done
 

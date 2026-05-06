@@ -399,11 +399,8 @@ build_xcframework() {
 	pushd "$workdir" >/dev/null 2>&1
 	xcodebuild -create-xcframework \
 		-archive "${archives_dir}/GRDB-iOS.xcarchive" -framework GRDB.framework \
-		-debug-symbols "${archives_dir}/GRDB-iOS.xcarchive/dSYMs/GRDB.framework.dSYM" \
 		-archive "${archives_dir}/GRDB-iOS Simulator.xcarchive" -framework GRDB.framework \
-		-debug-symbols "${archives_dir}/GRDB-iOS Simulator.xcarchive/dSYMs/GRDB.framework.dSYM" \
 		-archive "${archives_dir}/GRDB-macOS.xcarchive" -framework GRDB.framework \
-		-debug-symbols "${archives_dir}/GRDB-macOS.xcarchive/dSYMs/GRDB.framework.dSYM" \
 		-output "${xcframework}" >/dev/null 2>&1
 	popd >/dev/null 2>&1
 	echo "✅"

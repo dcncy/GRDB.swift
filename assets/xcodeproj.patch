@@ -1,3 +1,11 @@
+diff --git a/Support/module.modulemap b/Support/module.modulemap
+--- a/Support/module.modulemap
++++ b/Support/module.modulemap
+@@ -7,2 +7,3 @@ framework module GRDB {
+     header "grdb_config.h"
++    textual header "sqlite3.h"
+ }
+
 diff --git a/GRDB.xcodeproj/project.pbxproj b/GRDB.xcodeproj/project.pbxproj
 index bf103ccf1..478eb916d 100755
 --- a/GRDB.xcodeproj/project.pbxproj

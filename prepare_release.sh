@@ -108,9 +108,9 @@ clone_sqlcipher() {
 
 	export GIT_DIR="${sqlcipher_dir}/.git"
 	sqlcipher_tag="${SQLCIPHER_VERSION:-$(git describe --tags --abbrev=0)}"
-	eval git checkout "$(git describe --tags --abbrev=0)" "$mute"
+	eval git checkout "${sqlcipher_tag}" "$mute"
 	unset GIT_DIR
-	echo "Checked out SQLCipher latest tag: $sqlcipher_tag"
+	echo "Checked out SQLCipher tag: $sqlcipher_tag"
 }
 
 update_readme() {
@@ -212,7 +212,7 @@ patch_grdb() {
 
 		pushd "$grdb_dir" >/dev/null 2>&1
 		local diff
-		diff=$(git diff "GRDB.xcodeproj/project.pbxproj")
+		diff=$(git diff "GRDB.xcodeproj/project.pbxproj" "Support/module.modulemap")
 		popd >/dev/null 2>&1
 		echo "$diff" > "${patch_file}"
 		echo "Updated Xcode project patch file ✅"
@@ -409,7 +409,8 @@ build_xcframework() {
 
 	printf '%s' "Compressing XCFramework ... "
 	rm -rf "$xcframework_zip"
-	ditto -c -k --keepParent "$xcframework" "$xcframework_zip"
+	find "$xcframework" -name '._*' -delete
+	ditto --norsrc -c -k --keepParent "$xcframework" "$xcframework_zip"
 	echo "✅"
 }
 

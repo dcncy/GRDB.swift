@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 mute=">/dev/null 2>&1"
 if [[ "${1:-}" == "-v" ]]; then
@@ -258,6 +258,8 @@ build_and_test_release() {
 		-project "${grdb_dir}/GRDB.xcodeproj" \
 		-scheme "GRDB" \
 		-derivedDataPath "$derived_data_dir" \
+		-testLanguage en \
+		-testRegion US \
 		-skip-testing:GRDBTests/EncryptionTests/testSQLCipher3Compatibility \
 		| tee -a "$log_file" | $log_formatter 2>&1; then
 
